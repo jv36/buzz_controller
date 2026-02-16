@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Buzz Controller</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      touch-action: manipulation;
+      -webkit-text-size-adjust: 100%;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      text-align: center;
+      background-color: #0a0a0a;
+      color: white;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+    }
+    .header {
+      margin-bottom: 20px;
+    }
+    h1 {
+      font-size: 1.8em;
+      margin-bottom: 5px;
+    }
+    .status {
+      font-size: 0.9em;
+      opacity: 0.7;
+    }
+    .status.connected {
+      color: #4CAF50;
+    }
+    .status.disconnected {
+      color: #f44336;
+    }
+    .controller {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      gap: 20px;
+      max-width: 400px;
+      margin: 0 auto;
+      width: 100%;
+    }
+    .big-button {
+      width: min(70vw, 280px);
+      height: min(70vw, 280px);
+      background: radial-gradient(circle at 30% 30%, #ff6b6b, #c92a2a);
+      border: none;
+      border-radius: 50%;
+      font-size: 28px;
+      font-weight: bold;
+      color: white;
+      cursor: pointer;
+      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5);
+      transition: all 0.1s;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .big-button:active {
+      transform: scale(0.95);
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.5);
+    }
+    .button-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      width: 100%;
+      max-width: 280px;
+    }
+    .color-button {
+      width: 100%;
+      height: 60px;
+      font-size: 18px;
+      font-weight: 600;
+      color: white;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+      transition: all 0.1s;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .color-button:active {
+      transform: scale(0.97);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    }
+    .blue { 
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    .orange { 
+      background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    }
+    .green { 
+      background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    }
+    .yellow { 
+      background: linear-gradient(135deg, #fad961 0%, #f76b1c 100%);
+      color: #333;
+    }
+    .footer {
+      margin-top: 30px;
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+    }
+    .footer button {
+      padding: 12px 24px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 8px;
+      color: white;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .footer button:active {
+      background: rgba(255, 255, 255, 0.2);
+    }
+    .feedback {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0);
+      background: rgba(0, 0, 0, 0.9);
+      padding: 30px 50px;
+      border-radius: 15px;
+      font-size: 24px;
+      pointer-events: none;
+      transition: transform 0.2s;
+    }
+    .feedback.show {
+      transform: translate(-50%, -50%) scale(1);
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1 id="playerTitle">Buzz! - Player 1</h1>
+    <div id="status" class="status">Connecting...</div>
+  </div>
+
+  <div class="controller">
+    <button class="big-button" data-button="big">BUZZ</button>
+    
+    <div class="button-stack">
+      <button class="color-button blue" data-button="blue">Blue</button>
+      <button class="color-button orange" data-button="orange">Orange</button>
+      <button class="color-button green" data-button="green">Green</button>
+      <button class="color-button yellow" data-button="yellow">Yellow</button>
+    </div>
+  </div>
+
+  <div class="footer">
+    <button onclick="switchPlayer()">Switch Player</button>
+    <button onclick="disconnect()">Disconnect</button>
+  </div>
+
+  <div id="feedback" class="feedback"></div>
+
+  <script>
+    // Get stored connection details
+    const serverUrl = localStorage.getItem('serverUrl');
+    const serverCode = localStorage.getItem('serverCode');
+    let player = localStorage.getItem('player') || '1';
+    
+    const statusDiv = document.getElementById('status');
+    const playerTitle = document.getElementById('playerTitle');
+    const feedbackDiv = document.getElementById('feedback');
+    
+    // Check if we have connection details
+    if (!serverUrl || !serverCode) {
+      alert('No server connection found. Redirecting to join page...');
+      window.location.href = 'index.html';
+    }
+
+    // Update UI
+    playerTitle.textContent = `Buzz! - Player ${player}`;
+    
+    // Ping server to check connection
+    async function checkConnection() {
+      try {
+        const response = await fetch(`${serverUrl}/api/ping`, {
+          headers: { 
+            'Accept': 'application/json',
+            'ngrok-skip-browser-warning': 'true'
+          }
+        });
+        if (response.ok) {
+          statusDiv.textContent = `Connected: ${serverCode}`;
+          statusDiv.className = 'status connected';
+          return true;
+        }
+      } catch (error) {
+        console.error('Connection error:', error);
+      }
+      statusDiv.textContent = 'Disconnected';
+      statusDiv.className = 'status disconnected';
+      return false;
+    }
+
+    // Initial connection check
+    checkConnection();
+    
+    // Periodic connection check every 10 seconds
+    setInterval(checkConnection, 10000);
+
+    // Show feedback animation
+    function showFeedback(message) {
+      feedbackDiv.textContent = message;
+      feedbackDiv.classList.add('show');
+      setTimeout(() => {
+        feedbackDiv.classList.remove('show');
+      }, 300);
+    }
+
+    // Handle button presses
+    async function pressButton(buttonType) {
+      try {
+        const response = await fetch(`${serverUrl}/api/press`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'ngrok-skip-browser-warning': 'true'
+          },
+          body: JSON.stringify({
+            player: parseInt(player),
+            button: buttonType
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          showFeedback('✓');
+          console.log(data.status);
+        } else {
+          showFeedback('✗');
+          console.error('Failed to send button press');
+        }
+      } catch (error) {
+        showFeedback('✗');
+        console.error('Error:', error);
+        statusDiv.textContent = 'Connection Lost';
+        statusDiv.className = 'status disconnected';
+      }
+    }
+
+    // Add event listeners to all buttons
+    document.querySelectorAll('[data-button]').forEach(button => {
+      button.addEventListener('click', (e) => {
+        e.preventDefault();
+        const buttonType = button.getAttribute('data-button');
+        pressButton(buttonType);
+      });
+      
+      // Prevent long press menu on mobile
+      button.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+      });
+    });
+
+    // Switch player function
+    function switchPlayer() {
+      const newPlayer = prompt('Enter player number (1-4):', player);
+      if (newPlayer && newPlayer >= 1 && newPlayer <= 4) {
+        player = newPlayer;
+        localStorage.setItem('player', player);
+        playerTitle.textContent = `Buzz! - Player ${player}`;
+      }
+    }
+
+    // Disconnect function
+    function disconnect() {
+      if (confirm('Disconnect from this game?')) {
+        localStorage.removeItem('serverUrl');
+        localStorage.removeItem('serverCode');
+        localStorage.removeItem('player');
+        window.location.href = 'index.html';
+      }
+    }
+
+    // Prevent accidental back navigation
+    history.pushState(null, null, location.href);
+    window.onpopstate = function() {
+      history.go(1);
+    };
+  </script>
+</body>
+</html>

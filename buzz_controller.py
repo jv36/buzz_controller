@@ -1,10 +1,16 @@
-from flask import Flask, render_template_string, request, redirect, session, url_for, jsonify
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 import pyautogui
 import threading
 import time
+import random
+import string
+import subprocess
+import re
+import sys
 
 app = Flask(__name__)
-app.secret_key = 'your-secret-key'
+CORS(app)  # Enable CORS for all routes
 
 KEY_MAPPING = {
     1: {'big': '1', 'blue': 'q', 'orange': 'w', 'green': 'e', 'yellow': 'r'},
@@ -13,187 +19,180 @@ KEY_MAPPING = {
     4: {'big': '4', 'blue': 'u', 'orange': 'i', 'green': 'o', 'yellow': 'p'},
 }
 
-# HTML for selecting player
-SELECT_PLAYER_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Select Player</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <style>
-    body { font-family: sans-serif; text-align: center; padding: 2em; }
-    select, button { font-size: 18px; padding: 12px; margin: 10px; }
-  </style>
-</head>
-<body>
-  <h1>Select Your Player</h1>
-  <form method="POST" action="/set_player">
-    <select name="player">
-      {% for p in range(1, 5) %}
-        <option value="{{ p }}">Player {{ p }}</option>
-      {% endfor %}
-    </select>
-    <br>
-    <button type="submit">Start</button>
-  </form>
-</body>
-</html>
-"""
+# Global variable to store ngrok URL and session code
+SERVER_INFO = {
+    'ngrok_url': None,
+    'session_code': None,
+    'public_url': None
+}
 
-# HTML for buzzer UI
-CONTROLLER_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Buzz Controller – Player {{ player }}</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
-  <style>
-    body {
-      font-family: sans-serif;
-      text-align: center;
-      background-color: #111;
-      color: white;
-      margin: 0;
-      padding: 0;
-    }
-    h1 {
-      margin: 1em 0 0.5em;
-    }
-    .controller {
-      margin: auto;
-      padding: 1em;
-    }
-    .big-button {
-      width: 70vw;
-      max-width: 250px;
-      height: 70vw;
-      max-height: 250px;
-      background-color: red;
-      border: none;
-      border-radius: 50%;
-      font-size: 24px;
-      color: white;
-      margin-bottom: 20px;
-    }
-    .button-stack {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      align-items: center;
-    }
-    .color-button {
-      width: 70vw;
-      max-width: 250px;
-      height: 50px;
-      font-size: 18px;
-      color: white;
-      border: none;
-      border-radius: 10px;
-    }
-    .blue { background-color: #007bff; }
-    .orange { background-color: orange; }
-    .green { background-color: green; }
-    .yellow { background-color: gold; color: black; }
-    .switch {
-      margin-top: 2em;
-    }
-    button:active {
-      transform: scale(0.96);
-    }
-    html, body {
-  touch-action: manipulation;
-  -webkit-text-size-adjust: 100%;
-  font-size: 18px; /* Minimum tap size for iOS */
-  }
-  </style>
-</head>
-<body>
-  <h1>Buzz! – Player {{ player }}</h1>
-  <div class="controller">
-  <form method="POST" action="/press" class="controller">
-    <input type="hidden" name="player" value="{{ player }}">
-    <button name="button" value="big" class="big-button">BUZZ</button>
-    <div class="button-stack">
-      <button name="button" value="blue" class="color-button blue">Blue</button>
-      <button name="button" value="orange" class="color-button orange">Orange</button>
-      <button name="button" value="green" class="color-button green">Green</button>
-      <button name="button" value="yellow" class="color-button yellow">Yellow</button>
-    </div>
-  </form>
-    <div class="switch">
-      <form method="GET" action="/logout">
-        <button>Switch Player</button>
-      </form>
-    </div>
-  </div>
-  <script>
-    function press(button) {
-      fetch("/press", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ player: {{ player }}, button })
-      }).then(res => res.json()).then(data => {
-        console.log(data.status);
-      });
-    }
-  </script>
-</body>
-</html>
-"""
 
-@app.route('/')
-def index():
-    if 'player' not in session:
-        return render_template_string(SELECT_PLAYER_HTML)
-    return render_template_string(CONTROLLER_HTML, player=session['player'])
+def generate_session_code():
+    """Generate a random 4-6 letter session code"""
+    return ''.join(random.choices(string.ascii_uppercase, k=5))
 
-@app.route('/set_player', methods=['POST'])
-def set_player():
-    session['player'] = int(request.form['player'])
-    return redirect(url_for('index'))
 
-#@app.route('/press', methods=['POST'])
-# def press_key():
-#     data = request.get_json()
-#     player = data.get('player')
-#     button = data.get('button')
-#     if player not in KEY_MAPPING or button not in KEY_MAPPING[player]:
-#         return jsonify({"status": "error"}), 400
-#     key = KEY_MAPPING[player][button]
-#     threading.Thread(target=pyautogui.press, args=(key,)).start()
-#     return jsonify({"status": f"Player {player} pressed {button} ({key})"})
-
-@app.route('/press', methods=['POST'])
-def press_key():
-    if 'player' not in request.form or 'button' not in request.form:
-        return "Missing form data", 400
-
+def start_ngrok():
+    """Start ngrok tunnel and return the public URL"""
     try:
-        player = int(request.form['player'])
-        button = request.form['button']
-        key = KEY_MAPPING[player][button]
+        # Try to start ngrok using subprocess
+        print("🚀 Starting ngrok tunnel...")
+        proc = subprocess.Popen(
+            ['ngrok', 'http', '5001', '--log=stdout'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        
+        # Give ngrok a moment to start and retry getting the URL
+        import requests
+        for attempt in range(6):  # Try for up to 12 seconds (6 attempts * 2 seconds)
+            time.sleep(2)
+            try:
+                response = requests.get('http://localhost:4040/api/tunnels', timeout=2)
+                tunnels = response.json()['tunnels']
+                if tunnels:
+                    public_url = tunnels[0]['public_url']
+                    SERVER_INFO['ngrok_url'] = public_url
+                    SERVER_INFO['public_url'] = public_url
+                    
+                    # Extract subdomain for session code
+                    match = re.search(r'https://([a-z0-9-]+)\.ngrok', public_url)
+                    if match:
+                        subdomain = match.group(1)
+                        # Use first 6 chars of subdomain as code
+                        SERVER_INFO['session_code'] = subdomain[:6].upper()
+                    else:
+                        SERVER_INFO['session_code'] = generate_session_code()
+                    
+                    print(f"✅ ngrok tunnel established!")
+                    print(f"🌐 Public URL: {public_url}")
+                    print(f"🔑 Session Code: {SERVER_INFO['session_code']}")
+                    print()
+                    return public_url
+            except Exception as e:
+                if attempt == 5:  # Last attempt
+                    print(f"⚠️  Could not get ngrok URL from API: {e}")
+                    print(f"💡 Tip: Make sure ngrok is configured with: ngrok config add-authtoken <your-token>")
+                continue
+            
+    except FileNotFoundError:
+        print("⚠️  ngrok not found. Install it from: https://ngrok.com/download")
+        print("   Or run locally with: python buzz_controller.py --local")
     except Exception as e:
-        print("Error:", e)
-        return "Invalid input", 400
+        print(f"⚠️  Could not start ngrok: {e}")
+    
+    return None
 
-    def hold_key():
-        pyautogui.keyDown(key)
-        time.sleep(0.1)
-        pyautogui.keyUp(key)
 
-    threading.Thread(target=hold_key).start()
+# API Endpoints
+@app.route('/api/ping', methods=['GET'])
+def ping():
+    """Health check endpoint"""
+    return jsonify({"status": "ok", "session_code": SERVER_INFO['session_code']})
 
-    return redirect(url_for('index'))
 
-@app.route('/logout')
-def logout():
-    session.clear()
-    return redirect(url_for('index'))
+@app.route('/api/press', methods=['POST'])
+def press_key():
+    """Handle button press from remote client"""
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({"status": "error", "message": "No data provided"}), 400
+    
+    player = data.get('player')
+    button = data.get('button')
+    
+    if not player or not button:
+        return jsonify({"status": "error", "message": "Missing player or button"}), 400
+    
+    try:
+        player = int(player)
+        if player not in KEY_MAPPING or button not in KEY_MAPPING[player]:
+            return jsonify({"status": "error", "message": "Invalid player or button"}), 400
+        
+        key = KEY_MAPPING[player][button]
+        
+        def hold_key():
+            pyautogui.keyDown(key)
+            time.sleep(0.1)
+            pyautogui.keyUp(key)
+        
+        threading.Thread(target=hold_key).start()
+        
+        return jsonify({
+            "status": "success",
+            "message": f"Player {player} pressed {button}",
+            "key": key
+        })
+    except Exception as e:
+        print(f"Error processing button press: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/api/info', methods=['GET'])
+def get_info():
+    """Get server information"""
+    return jsonify({
+        "session_code": SERVER_INFO['session_code'],
+        "public_url": SERVER_INFO['public_url'],
+        "players": [1, 2, 3, 4]
+    })
+
+
+
+def print_instructions():
+    """Print connection instructions"""
+    print("\n" + "="*60)
+    print("🎮  BUZZ CONTROLLER SERVER")
+    print("="*60)
+    
+    if SERVER_INFO['public_url']:
+        print(f"\n✅ Server is running and accessible from anywhere!")
+        print(f"\n🔑 SESSION CODE: {SERVER_INFO['session_code']}")
+        print(f"🌐 Public URL: {SERVER_INFO['public_url']}")
+        print("\nPlayers can connect by:")
+        print("  1. Opening the static HTML page (index.html)")
+        print("  2. Entering the session code above")
+        print("  3. Selecting their player number")
+        print("\n💡 Host your HTML files on:")
+        print("   - GitHub Pages: https://pages.github.com")
+        print("   - Netlify: https://netlify.com")
+        print("   - Vercel: https://vercel.com")
+        print("   - Or use: python -m http.server 8000")
+    else:
+        print(f"\n⚠️  Running in LOCAL mode only")
+        print(f"🌐 Local URL: http://localhost:5001")
+        print(f"🌐 Network URL: Find your local IP and use port 5001")
+        print("\nTo enable remote access:")
+        print("  1. Install ngrok: https://ngrok.com/download")
+        print("  2. Run: ngrok authtoken <your-token>")
+        print("  3. Restart this server")
+    
+    print("\n" + "="*60)
+    print("Press Ctrl+C to stop the server")
+    print("="*60 + "\n")
+
 
 if __name__ == "__main__":
-    import webbrowser
-    import threading
-    threading.Timer(1.0, lambda: webbrowser.open("http://localhost:80")).start()
-    app.run(host="0.0.0.0", port=80)
+    import sys
+    
+    # Check for local mode flag
+    local_mode = '--local' in sys.argv
+    
+    if not local_mode:
+        # Try to start ngrok
+        start_ngrok()
+    else:
+        print("Running in local mode (no ngrok)")
+        SERVER_INFO['session_code'] = "LOCAL"
+    
+    # Print instructions
+    print_instructions()
+    
+    # Start Flask server
+    try:
+        app.run(host="0.0.0.0", port=5001, debug=False)
+    except KeyboardInterrupt:
+        print("\n\n👋 Server stopped. Goodbye!")
+        sys.exit(0)

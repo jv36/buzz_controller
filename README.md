@@ -14,7 +14,7 @@ An in-depth paragraph about your project and overview of use.
 
 ### Executing program (for macOS)
 
-cd Downloads/buzz_app 
+cd Downloads/buzz_app
 
 export PATH="$(brew --prefix python)/libexec/bin:$PATH"
 
@@ -22,7 +22,7 @@ python -m venv ./env
 
 source ./env/bin/activate
 
-pip install flask pyautogui pyobjc-core pyobjc
+pip install -r requirements.txt
 
 python buzz_controller.py
 
