@@ -115,7 +115,7 @@
         <label for="serverCode">Server URL or Code</label>
         <input type="text" 
                id="serverCode" 
-               placeholder="https://... or code" 
+               placeholder="Paste: https://...ngrok-free.dev" 
                required
                autocomplete="off">
       </div>
@@ -134,7 +134,8 @@
     </form>
     
     <div class="info">
-      💡 Enter the ngrok URL or subdomain code from the game host
+      💡 Get the SERVER URL from the game host's terminal<br>
+      Example: https://abc-xyz.ngrok-free.dev
     </div>
   </div>
 
@@ -142,11 +143,6 @@
     const form = document.getElementById('joinForm');
     const errorDiv = document.getElementById('error');
     const serverCodeInput = document.getElementById('serverCode');
-
-    // Auto-uppercase server code input
-    serverCodeInput.addEventListener('input', (e) => {
-      e.target.value = e.target.value.toUpperCase();
-    });
 
     function showError(message) {
       errorDiv.textContent = message;
@@ -173,35 +169,51 @@
         // Full URL provided
         serverUrl = serverInput.replace(/\/$/, ''); // Remove trailing slash
       } else {
-        // Assume it's an ngrok subdomain/code
-        serverUrl = `https://${serverInput.toLowerCase()}.ngrok-free.app`;
+        // Try common ngrok patterns - try app first, then dev
+        const lowerInput = serverInput.toLowerCase();
+        serverUrl = `https://${lowerInput}.ngrok-free.app`;
       }
 
       // Test connection to server
-      try {
-        const response = await fetch(`${serverUrl}/api/ping`, {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-            'ngrok-skip-browser-warning': 'true'
-          }
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          // Store connection details
-          localStorage.setItem('serverUrl', serverUrl);
-          localStorage.setItem('serverCode', data.session_code || serverInput.toUpperCase());
-          localStorage.setItem('player', player);
+      async function tryConnect(url) {
+        try {
+          const response = await fetch(`${url}/api/ping`, {
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json',
+              'ngrok-skip-browser-warning': 'true'
+            }
+          });
           
-          // Redirect to controller
-          window.location.href = 'controller.html';
-        } else {
-          showError('Cannot connect to server. Check the URL/code and try again.');
+          if (response.ok) {
+            return await response.json();
+          }
+        } catch (error) {
+          return null;
         }
-      } catch (error) {
-        showError('Cannot reach server. Please check the URL/code and your internet connection.');
-        console.error('Connection error:', error);
+        return null;
+      }
+
+      // Try primary URL
+      let data = await tryConnect(serverUrl);
+      
+      // If failed and we tried .app, also try .dev
+      if (!data && serverUrl.includes('.ngrok-free.app')) {
+        const altUrl = serverUrl.replace('.ngrok-free.app', '.ngrok-free.dev');
+        data = await tryConnect(altUrl);
+        if (data) serverUrl = altUrl;
+      }
+      
+      if (data) {
+        // Store connection details
+        localStorage.setItem('serverUrl', serverUrl);
+        localStorage.setItem('serverCode', data.session_code || serverInput.toUpperCase());
+        localStorage.setItem('player', player);
+        
+        // Redirect to controller
+        window.location.href = 'controller.html';
+      } else {
+        showError('Cannot reach server. Please check the URL and try again.');
       }
     });
   </script>
