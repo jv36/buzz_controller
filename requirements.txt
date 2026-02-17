@@ -4,3 +4,4 @@ pyautogui
 pyobjc-core
 pyobjc
 requests
+pyinstaller

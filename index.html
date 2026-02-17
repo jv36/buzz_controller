@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Buzz Controller - Join Game</title>
+  <title>Buzz Controller Client</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <style>
     * {
@@ -11,9 +11,9 @@
       padding: 0;
     }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-family: "Courier";
       text-align: center;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: black;
       color: white;
       min-height: 100vh;
       display: flex;
@@ -61,7 +61,6 @@
     input, select {
       background: rgba(255, 255, 255, 0.9);
       color: #333;
-      text-transform: uppercase;
       text-align: center;
       font-weight: bold;
       letter-spacing: 2px;
@@ -101,27 +100,46 @@
       margin-top: 20px;
       font-size: 0.9em;
     }
+    .my-footer {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: rgba(255, 255, 255, 0.15);
+      padding: 5px;
+      border-radius: 10px;
+      margin-top: 20px;
+      font-size: 0.9em;
+      text-align: center;
+    }
+    .my-footer p {
+      margin: 0;
+    }
+    .my-footer a {
+      color: #4CAF50;
+      text-decoration: none;
+      font-weight: bold;
+    }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>🎮 Buzz!</h1>
-    <p>Join a game session</p>
+    <h1>Buzz Controller</h1>
+    <p>Join a game session on PCSX2!</p>
     
     <div id="error" class="error"></div>
     
     <form id="joinForm">
       <div class="input-group">
-        <label for="serverCode">Server URL or Code</label>
+        <label for="serverCode">Server code or URL</label>
         <input type="text" 
                id="serverCode" 
-               placeholder="Paste: https://...ngrok-free.dev" 
+               placeholder="Example: SCHEMES-COVER-METAL" 
                required
                autocomplete="off">
       </div>
       
       <div class="input-group">
-        <label for="player">Select Your Player</label>
+        <label for="player">Select your player</label>
         <select id="player" required>
           <option value="1">Player 1</option>
           <option value="2">Player 2</option>
@@ -134,8 +152,14 @@
     </form>
     
     <div class="info">
-      💡 Get the SERVER URL from the game host's terminal<br>
-      Example: https://abc-xyz.ngrok-free.dev
+      Paste the server code or full URL from the host's screen<br>
+      Examples:<br>
+      • SCHEMES-COVER-METAL<br>
+      • https://schemes-cover-metal.trycloudflare.com
+    </div>
+
+    <div class="my-footer">
+      <p>Check out more info <a href="https://github.com/jv36/buzz_controller" target="_blank">here</a>!</p>
     </div>
   </div>
 
@@ -169,9 +193,9 @@
         // Full URL provided
         serverUrl = serverInput.replace(/\/$/, ''); // Remove trailing slash
       } else {
-        // Try common ngrok patterns - try app first, then dev
-        const lowerInput = serverInput.toLowerCase();
-        serverUrl = `https://${lowerInput}.ngrok-free.app`;
+        // Treat as session code - convert to lowercase and construct URL
+        const code = serverInput.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+        serverUrl = `https://${code}.trycloudflare.com`;
       }
 
       // Test connection to server
@@ -181,6 +205,7 @@
             method: 'GET',
             headers: {
               'Accept': 'application/json',
+              'CF-Access-Client-Id': 'bypass',
               'ngrok-skip-browser-warning': 'true'
             }
           });
@@ -197,12 +222,6 @@
       // Try primary URL
       let data = await tryConnect(serverUrl);
       
-      // If failed and we tried .app, also try .dev
-      if (!data && serverUrl.includes('.ngrok-free.app')) {
-        const altUrl = serverUrl.replace('.ngrok-free.app', '.ngrok-free.dev');
-        data = await tryConnect(altUrl);
-        if (data) serverUrl = altUrl;
-      }
       
       if (data) {
         // Store connection details
